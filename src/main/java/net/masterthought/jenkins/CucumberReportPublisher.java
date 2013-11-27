@@ -30,7 +30,7 @@ public class CucumberReportPublisher extends Recorder {
     public final boolean skippedFails;
     public final boolean undefinedFails;
     public final boolean noFlashCharts;
-	public final boolean ignoreFailedTests;
+    public final boolean ignoreFailedTests;
 
     @DataBoundConstructor
     public CucumberReportPublisher(String jsonReportDirectory, String pluginUrlPath, boolean skippedFails, boolean undefinedFails, boolean noFlashCharts, boolean ignoreFailedTests) {
@@ -39,7 +39,7 @@ public class CucumberReportPublisher extends Recorder {
         this.skippedFails = skippedFails;
         this.undefinedFails = undefinedFails;
         this.noFlashCharts = noFlashCharts;
-		this.ignoreFailedTests = ignoreFailedTests;
+        this.ignoreFailedTests = ignoreFailedTests;
     }
 
     private String[] findJsonFiles(File targetDirectory) {
@@ -50,9 +50,18 @@ public class CucumberReportPublisher extends Recorder {
         return scanner.getIncludedFiles();
     }
 
+    private String[] findPngFiles(File targetDirectory) {
+        DirectoryScanner scanner = new DirectoryScanner();
+        scanner.setIncludes(new String[]{"**/*.png"});
+        scanner.setBasedir(targetDirectory);
+        scanner.scan();
+        return scanner.getIncludedFiles();
+    }
+    
+
     @Override
     public boolean perform(AbstractBuild<?, ?> build, Launcher launcher, BuildListener listener)
-            throws IOException, InterruptedException {
+    throws IOException, InterruptedException {
 
         listener.getLogger().println("[CucumberReportPublisher] Compiling Cucumber Html Reports ...");
 
@@ -70,121 +79,144 @@ public class CucumberReportPublisher extends Recorder {
         }
 
         // if we are on a slave
-        if (Computer.currentComputer() instanceof SlaveComputer) {
-            listener.getLogger().println("[CucumberReportPublisher] detected this build is running on a slave ");
-            FilePath projectWorkspaceOnSlave = build.getProject().getSomeWorkspace();
-            FilePath masterJsonReportDirectory = new FilePath(targetBuildDirectory);
-            listener.getLogger().println("[CucumberReportPublisher] copying json from: " + projectWorkspaceOnSlave.toURI() + "to reports directory: " + masterJsonReportDirectory.toURI());
-            projectWorkspaceOnSlave.copyRecursiveTo("**/*.json", "", masterJsonReportDirectory);
-        } else {
-            // if we are on the master
-            listener.getLogger().println("[CucumberReportPublisher] detected this build is running on the master ");
-            String[] files = findJsonFiles(workspaceJsonReportDirectory);
+        /*
 
-            if (files.length != 0) {
-                listener.getLogger().println("[CucumberReportPublisher] copying json to reports directory: " + targetBuildDirectory);
-                for (String file : files) {
-                    FileUtils.copyFile(new File(workspaceJsonReportDirectory.getPath() + "/" + file), new File(targetBuildDirectory, file));
-                }
-            } else {
-                listener.getLogger().println("[CucumberReportPublisher] there were no json results found in: " + workspaceJsonReportDirectory);
+
+    Check build folder / workspace flow
+
+
+        */
+    if (Computer.currentComputer() instanceof SlaveComputer) {
+        listener.getLogger().println("[CucumberReportPublisher] detected this build is running on a slave ");
+        FilePath projectWorkspaceOnSlave = build.getProject().getSomeWorkspace();
+        FilePath masterDirectory = new FilePath(targetBuildDirectory);
+        listener.getLogger().println("[CucumberReportPublisher] copying json from: " + projectWorkspaceOnSlave.toURI() + "to reports directory: " + masterDirectory.toURI());
+        projectWorkspaceOnSlave.copyRecursiveTo("**/*.json", "", masterDirectory);
+
+        listener.getLogger().println("[CucumberReportPublisher] copying images from: " + projectWorkspaceOnSlave.toURI() + "to reports directory: " + masterDirectory.toURI());
+        projectWorkspaceOnSlave.copyRecursiveTo("**/*.png", "", masterDirectory);
+    } else {
+            // if we are on the master
+        listener.getLogger().println("[CucumberReportPublisher] detected this build is running on the master ");
+        String[] files = findJsonFiles(workspaceJsonReportDirectory);
+
+        if (files.length != 0) {
+            listener.getLogger().println("[CucumberReportPublisher] copying json to reports directory: " + targetBuildDirectory);
+            for (String file : files) {
+                FileUtils.copyFile(new File(workspaceJsonReportDirectory.getPath() + "/" + file), new File(targetBuildDirectory, file));
             }
+        } else {
+            listener.getLogger().println("[CucumberReportPublisher] there were no json results found in: " + workspaceJsonReportDirectory);
         }
+    }
 
         // generate the reports from the targetBuildDirectory
-		Result result = Result.NOT_BUILT;
-        String[] jsonReportFiles = findJsonFiles(targetBuildDirectory);
-        if (jsonReportFiles.length != 0) {
+    Result result = Result.NOT_BUILT;
+    String[] jsonReportFiles = findJsonFiles(targetBuildDirectory);
+    String[] pngFiles = findPngFiles(targetBuildDirectory);
 
-            listener.getLogger().println("[CucumberReportPublisher] Found the following number of json files: " + jsonReportFiles.length);
-            int jsonIndex = 0;
-            for (String jsonReportFile : jsonReportFiles) {
-                listener.getLogger().println("[CucumberReportPublisher] " + jsonIndex + ". Found a json file: " + jsonReportFile);
-                jsonIndex++;
-            }
-            listener.getLogger().println("[CucumberReportPublisher] Generating HTML reports");
+    if (jsonReportFiles.length != 0) {
 
-            try {
-                ReportBuilder reportBuilder = new ReportBuilder(
-                        fullPathToJsonFiles(jsonReportFiles, targetBuildDirectory),
-                        targetBuildDirectory,
-                        pluginUrlPath,
-                        buildNumber,
-                        buildProject,
-                        skippedFails,
-                        undefinedFails,
-                        !noFlashCharts,
-                        true,
-                        false,
-                        "",
-                        false);
-                reportBuilder.generateReports();
-
-				boolean buildSuccess = reportBuilder.getBuildStatus();
-
-				if (buildSuccess)
-				{
-					result = Result.SUCCESS;
-				}
-				else
-				{
-					result = ignoreFailedTests ? Result.UNSTABLE : Result.FAILURE;
-				}
-				
-            } catch (Exception e) {
-                e.printStackTrace();
-				result = Result.FAILURE;
-                listener.getLogger().println("[CucumberReportPublisher] there was an error generating the reports: " + e);
-                for(StackTraceElement error : e.getStackTrace()){
-                   listener.getLogger().println(error);
-                }
-            }
-        } else {
-			result = Result.SUCCESS;
-            listener.getLogger().println("[CucumberReportPublisher] there were no json results found in: " + targetBuildDirectory);
+        listener.getLogger().println("[CucumberReportPublisher] Found the following number of json files: " + jsonReportFiles.length);
+        int jsonIndex = 0;
+        for (String jsonReportFile : jsonReportFiles) {
+            listener.getLogger().println("[CucumberReportPublisher] " + jsonIndex + ". Found a json file: " + jsonReportFile);
+            jsonIndex++;
         }
 
-        build.addAction(new CucumberReportBuildAction(build));
-		build.setResult(result);
-		
-        return true;
-    }
 
-    private List<String> fullPathToJsonFiles(String[] jsonFiles, File targetBuildDirectory) {
-        List<String> fullPathList = new ArrayList<String>();
-        for (String file : jsonFiles) {
-            fullPathList.add(new File(targetBuildDirectory, file).getAbsolutePath());
+        listener.getLogger().println("[CucumberReportPublisher] Found the following number of png images: " + pngFiles.length);
+        int pngIndex = 0;
+        for (String pngFile : pngFiles) {
+            listener.getLogger().println("[CucumberReportPublisher] " + pngIndex + ". Found a png file: " + pngFile);
+            pngIndex++;
         }
-        return fullPathList;
-    }
 
+
+        listener.getLogger().println("[CucumberReportPublisher] Generating HTML reports");
+
+        try {
+            ReportBuilder reportBuilder = new ReportBuilder(
+                fullPathToJsonFiles(jsonReportFiles, targetBuildDirectory),
+                targetBuildDirectory,
+                pluginUrlPath,
+                buildNumber,
+                buildProject,
+                skippedFails,
+                undefinedFails,
+                !noFlashCharts,
+                true,
+                false,
+                "",
+                false);
+            reportBuilder.generateReports();
+
+            boolean buildSuccess = reportBuilder.getBuildStatus();
+
+            if (buildSuccess)
+            {
+             result = Result.SUCCESS;
+         }
+         else
+         {
+             result = ignoreFailedTests ? Result.UNSTABLE : Result.FAILURE;
+         }
+
+     } catch (Exception e) {
+        e.printStackTrace();
+        result = Result.FAILURE;
+        listener.getLogger().println("[CucumberReportPublisher] there was an error generating the reports: " + e);
+        for(StackTraceElement error : e.getStackTrace()){
+           listener.getLogger().println(error);
+       }
+   }
+} else {
+   result = Result.SUCCESS;
+   listener.getLogger().println("[CucumberReportPublisher] there were no json results found in: " + targetBuildDirectory);
+}
+
+build.addAction(new CucumberReportBuildAction(build));
+build.setResult(result);
+
+return true;
+}
+
+private List<String> fullPathToJsonFiles(String[] jsonFiles, File targetBuildDirectory) {
+    List<String> fullPathList = new ArrayList<String>();
+    for (String file : jsonFiles) {
+        String absolutePath = new File(targetBuildDirectory, file).getAbsolutePath();
+        fullPathList.add(absolutePath);
+    }
+    return fullPathList;
+}
+
+@Override
+public Action getProjectAction(AbstractProject<?, ?> project) {
+    return new CucumberReportProjectAction(project);
+}
+
+@Extension
+public static class DescriptorImpl extends BuildStepDescriptor<Publisher> {
     @Override
-    public Action getProjectAction(AbstractProject<?, ?> project) {
-        return new CucumberReportProjectAction(project);
+    public String getDisplayName() {
+        return "Publish cucumber results as a report";
     }
-
-    @Extension
-    public static class DescriptorImpl extends BuildStepDescriptor<Publisher> {
-        @Override
-        public String getDisplayName() {
-            return "Publish cucumber results as a report";
-        }
 
 
         // Performs on-the-fly validation on the file mask wildcard.
-        public FormValidation doCheck(@AncestorInPath AbstractProject project,
-                                      @QueryParameter String value) throws IOException, ServletException {
-            FilePath ws = project.getSomeWorkspace();
-            return ws != null ? ws.validateRelativeDirectory(value) : FormValidation.ok();
-        }
-
-        @Override
-        public boolean isApplicable(Class<? extends AbstractProject> jobType) {
-            return true;
-        }
+    public FormValidation doCheck(@AncestorInPath AbstractProject project,
+      @QueryParameter String value) throws IOException, ServletException {
+        FilePath ws = project.getSomeWorkspace();
+        return ws != null ? ws.validateRelativeDirectory(value) : FormValidation.ok();
     }
 
-    public BuildStepMonitor getRequiredMonitorService() {
-        return BuildStepMonitor.NONE;
+    @Override
+    public boolean isApplicable(Class<? extends AbstractProject> jobType) {
+        return true;
     }
+}
+
+public BuildStepMonitor getRequiredMonitorService() {
+    return BuildStepMonitor.NONE;
+}
 }
